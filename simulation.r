@@ -55,7 +55,7 @@ compute_one_rep <- function(history, config, rep_id=NA) {
   one_rep<-create_replicate(history, config$personal$years_in_retirement) %>%
     mutate(rep_id=rep_id,
            original_year = year,
-           year = retirement_start_year + 0:(config$personal$years_in_retirement-1),
+           year = config$personal$retirement_start_year + (0:(config$personal$years_in_retirement-1)),
            retirement_year = 0:(config$personal$years_in_retirement-1)) %>%
     config$personal$augment() %>%
     config$spending$augment() %>%
