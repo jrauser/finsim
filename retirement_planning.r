@@ -10,8 +10,8 @@ source("personal_info.r")
 
 config <- list(personal = my_personal_info,
                
-               asset_allocation = AssetAllocationConstant$new(equities = 0.8,
-                                                              fixed_income = 0.2),
+               asset_allocation = AssetAllocationConstant$new(equities = 0.6,
+                                                              fixed_income = 0.4),
                
                withdrawal = WithdrawTaxableFirst$new(),
                
@@ -78,6 +78,19 @@ reps %>%
   scale_y_log10(labels=comma) +
   scale_color_manual(values=c("black","red")) +
   scale_alpha_manual(values=c(1/20, 1/2))
+
+reps %>%
+  group_by(rep_id) %>%
+  arrange(year) %>%
+  mutate(cumul_inflation=cumprod(1+inflation),
+         cumul_sp500_growth=cumprod(1+sp500_growth)) %>%
+  ggplot(aes(cumul_inflation, cumul_sp500_growth, group=rep_id)) + 
+  geom_path(aes(color=failure, alpha=failure)) +
+  scale_x_log10(labels=comma) +
+  scale_y_log10(labels=comma) +
+  scale_color_manual(values=c("black","red")) +
+  scale_alpha_manual(values=c(1/20, 1/2))
+
 
 
 #ggplot(reps, aes(year,total_savings/1e6, group=rep_id)) + geom_line() + facet_wrap(~rep_id)

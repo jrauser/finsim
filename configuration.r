@@ -74,6 +74,34 @@ IncomeConstant <- R6Class("IncomeConstant", list(
 ))
 
 
+# IncomeSocialSecurity <- R6Class("IncomeSocialSecurity", list(
+#   start_amount = NULL,
+#   start_age = NULL,
+#   spouse_start_amount = NULL,
+#   spouse_start_age = NULL,
+#   initialize = function(start_amount, start_age, spouse_start_amount, spouse_start_age) {
+#     stopifnot(is.numeric(start_amount), length(start_amount) == 1)
+#     stopifnot(is.numeric(start_age), length(start_age) == 1)
+#     stopifnot(is.numeric(spouse_start_amount), length(spouse_start_amount) == 1)
+#     stopifnot(is.numeric(spouse_start_age), length(spouse_start_age) == 1)
+#     self$start_amount <- start_amount
+#     self$start_age <- start_age
+#     self$spouse_start_amount <- spouse_start_amount
+#     self$spouse_start_age <- spouse_start_age
+#   },
+#   augment = function(data) {
+# #LEFT OFF HERE, need to figure out how to deal with self and spouse 
+# #    need some kind of general income solution for multiple streams,
+# #    social security, employment, windfall, etc. 
+#     data$social_security_income <- NA
+#     return(data)
+#   },
+#   income = function(...) {
+#     return(self$amount)
+#   }
+# ))
+
+
 WithdrawTaxableFirst <- R6Class("WithdrawTaxableFirst", list(
   augment = function(data) {
     data$withdrawals <- list(as.numeric(c(taxable=NA, tax_deferred=NA)))
