@@ -1,11 +1,13 @@
 
 # Functions for repeated simulation
 
+# The data in each row of a replicate represents the state of the world at the 
+# end of that year.  
 
 # Creates a moving-blocks bootstrap replicate from a data frame
 create_replicate <- function(data, output_length) {
   # Choose the sizes of the block randomly
-  block_sizes <- sample(3:10, output_length, replace=T)
+  block_sizes <- sample(5:15, output_length, replace=T)
   block_sizes <- block_sizes[1:which.max(cumsum(block_sizes) > output_length)]
   # Choose where to take each block from
   choices <- map_int(block_sizes, ~sample(seq(1, nrow(data)-.x), 1))
@@ -15,39 +17,29 @@ create_replicate <- function(data, output_length) {
   return(retval[1:output_length,])
 }
 
-# Given this year's economic data (in row), and our financial status 
-# from the end of last year (in prev_row), compute our financial status 
-# at the end of this year.
-compute_one_year <- function(config, row, prev_row) {
-  row$spending <- config$spending$spending(row, prev_row)
-  row$income <- config$income$income(row, prev_row)
-  row$asset_allocation <- config$asset_allocation$allocation(row, prev_row)
-  equities_allocation <- row$asset_allocation[[1]]["equities"]
-  bonds_allocation <- row$asset_allocation[[1]]["fixed_income"]
+# Given this year's economic data (at row_idx), and our financial status 
+# from the end of last year (at row_idx-1), fill in everythig for this year.
+update_one_year <- function(config, dat, row_idx) {
+
+  # Figure out what we need to spend
+  dat[row_idx, "total_spending"] <- 0
+  for (s in config$spending) { dat[row_idx,] <- s$update(dat, row_idx) }
   
-  row$withdrawals <- config$withdrawal$withdrawals(row, prev_row, row$spending) 
-  from_taxable <- row$withdrawals[[1]]["taxable"]
-  from_tax_deferred <- row$withdrawals[[1]]["tax_deferred"]
+  # Figure out income.  Doing this here assumes that all income comes in a 
+  # lump sum at the start of the year, which is kinda weird, but I suppose is
+  # offset by doing all withdrawals in a lump sum at the start of the year.
+  dat[row_idx, "total_income"] <- 0
+  for (i in config$income) { dat[row_idx,] <- i$update(dat, row_idx) }
   
-  row$taxable_account_value <- prev_row$taxable_account_value - from_taxable
-  row$tax_deferred_account_value <- prev_row$tax_deferred_account_value - from_tax_deferred
+  # Make withdrawals at the beginning of the year
+  # This will set taxable_account_value and tax_deferred_account_value
+  dat[row_idx,] <- config$withdrawal$update(dat, row_idx) 
   
-  # TODO: there's probably something smart to do about putting bonds in the 
-  # taxable account to reduce taxes??  This assumes that each account has 
-  # the target asset allocation.
-  row$taxable_account_value <- row$taxable_account_value + 
-    row$taxable_account_value * equities_allocation * row$sp500_growth +
-    row$taxable_account_value * equities_allocation * row$dividend_yield +
-    row$taxable_account_value * bonds_allocation * row$ten_yr_treasury_yield 
-  
-  row$tax_deferred_account_value <- row$tax_deferred_account_value + 
-    row$tax_deferred_account_value * equities_allocation * row$sp500_growth +
-    row$tax_deferred_account_value * equities_allocation * row$dividend_yield + 
-    row$tax_deferred_account_value * bonds_allocation * row$ten_yr_treasury_yield
-  
-  row$total_savings <- row$taxable_account_value + row$tax_deferred_account_value
-  
-  return(row)
+  # Update asset allocation and compute growth in assets
+  # This will update taxable_account_value and tax_deferred_account_value
+  dat[row_idx,] <- config$asset_allocation$update(dat, row_idx) 
+
+  return(dat[row_idx,])
 }
 
 # Does a complete replication
@@ -56,15 +48,25 @@ compute_one_rep <- function(history, config, rep_id=NA) {
     mutate(rep_id=rep_id,
            original_year = year,
            year = config$personal$retirement_start_year + (0:(config$personal$years_in_retirement-1)),
-           retirement_year = 0:(config$personal$years_in_retirement-1)) %>%
+           retirement_year = 0:(config$personal$years_in_retirement-1),
+           taxable_account_value = NA_real_,
+           tax_deferred_account_value = NA_real_,
+           total_spending = NA_real_,
+           total_income = NA_real_) %>%
     config$personal$augment() %>%
-    config$spending$augment() %>%
-    config$income$augment() %>%
     config$asset_allocation$augment() %>%
     config$withdraw$augment()
+
+  one_rep[1, "taxable_account_value"] <- config$personal$taxable_acct_value_at_retirement
+  one_rep[1, "tax_deferred_account_value"] <- config$personal$tax_deferred_acct_value_at_retirement
+  one_rep[1, "total_savings"] <- config$personal$taxable_acct_value_at_retirement +
+    config$personal$tax_deferred_acct_value_at_retirement
   
+  for (s in config$spending) { one_rep <- s$augment(one_rep) }
+  for (i in config$income) { one_rep <- i$augment(one_rep) }
+
   for (idx in 2:nrow(one_rep)) {
-    one_rep[idx,] <- compute_one_year(config, one_rep[idx,], one_rep[idx-1,])
+    one_rep[idx,] <- update_one_year(config, one_rep, idx)
   }
   
   return(one_rep)

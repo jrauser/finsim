@@ -2,37 +2,91 @@
 # Configurable objects for spending, income, asset allocation, etc.
 
 SpendingConstant <- R6Class("SpendingConstant", list(
+  name = NULL,
   amount = NULL,
-  initialize = function(amount) {
+  
+  initialize = function(name, amount) {
+    stopifnot(is.character(name), length(name) == 1)
     stopifnot(is.numeric(amount), length(amount) == 1)
     self$amount <- amount
+    self$name <- paste("spending", name, sep="_")
   },
+  
   augment = function(data) {
-    data$spending <- NA
+    data[, self$name] = NA_real_
     return(data)
   },
-  spending = function(...) {
-    return(self$amount)
+  
+  update = function(dat, row_idx) {
+    dat[row_idx, self$name] <- self$amount
+    # accumulate total spending
+    dat[row_idx, "total_spending"] <- dat[row_idx, "total_spending"] + dat[row_idx, self$name]
+    
+    return(dat[row_idx,])
   }
 ))
 
+
 SpendingSWR <- R6Class("SpendingSWR", list(
+  name = NULL,
   initial_rate = NULL,
-  initialize = function(initial_rate) {
+  initialize = function(name, initial_rate) {
+    stopifnot(is.character(name), length(name) == 1)
     stopifnot(is.numeric(initial_rate), length(initial_rate) == 1)
     self$initial_rate <- initial_rate
+    self$name <- paste("spending", name, sep="_")
   },
   augment = function(data) {
-    data %>% mutate(spending = NA)
+    data[,self$name] = NA_real_
+    return(data)
   },
-  spending = function(row, prev_row) {
-    if(row$retirement_year == 1) {
-      # The first year, set spending to a fraction of total savings
-      return(prev_row$total_savings * self$initial_rate)
+  update = function(dat, row_idx) {
+    if(row_idx == 2) {
+      # The first year of retirement, compute initial amount based on a SWR
+      dat[row_idx, self$name] <- dat[1, "total_savings"] * self$initial_rate
     } else {
       # All subsequent years, just adjust for inflation
-      return(prev_row$spending * (1+row$inflation))
+      inflation <- dat[row_idx-1, "inflation"]
+      dat[row_idx, self$name] <- dat[row_idx-1, self$name] * (1+inflation)
     }
+    # accumulate total spending
+    dat[row_idx, "total_spending"] <- dat[row_idx, "total_spending"] + dat[row_idx, self$name]
+
+    return(dat[row_idx,])
+  }
+))
+
+
+SpendingInflationAdjusted <- R6Class("SpendingInflationAdjusted", list(
+  name = NULL,
+  initial_amt = NULL,  #This is in 2020 dollars
+  begin_year = NULL,
+  end_year = NULL,
+  initialize = function(name, initial_amt, begin_year, end_year) {
+    stopifnot(is.character(name), length(name) == 1)
+    stopifnot(is.numeric(initial_amt), length(initial_amt) == 1)
+    stopifnot(is.numeric(begin_year), length(begin_year) == 1)
+    stopifnot(is.numeric(end_year), length(end_year) == 1)
+    self$name <- paste("spending", name, sep="_")
+    self$initial_amt <- initial_amt
+    self$begin_year <- begin_year
+    self$end_year <- end_year
+  },
+  augment = function(data) {
+    data[,self$name] = NA_real_
+    return(data)
+  },
+  update = function(dat, row_idx) {
+    if(dat[row_idx,"year"] >= self$begin_year && dat[row_idx,"year"] <= self$end_year) {
+      inflation_series <- dat[2:row_idx, "inflation"] 
+      dat[row_idx, self$name] <- self$initial_amt * prod(1+inflation_series)
+    } else {
+      dat[row_idx, self$name] <- 0
+    }
+    # accumulate total spending
+    dat[row_idx, "total_spending"] <- dat[row_idx, "total_spending"] + dat[row_idx, self$name]
+  
+    return(dat[row_idx,])
   }
 ))
 
@@ -47,59 +101,97 @@ AssetAllocationConstant <- R6Class("AssetAllocationConstant", list(
     self$equities <- equities
     self$fixed_income <- fixed_income
   },
-  augment = function(data) {
-    data$asset_allocation <- list(as.numeric(c(equities=NA, fixed_income=NA)))
-    return(data)
+  augment = function(dat) {
+    dat$asset_allocation <- list(as.numeric(c(equities=NA, fixed_income=NA)))
+    return(dat)
   },
-  allocation = function(...) {
-    return(list(c(equities=self$equities, 
-                  fixed_income=self$fixed_income)))
+  update = function(dat, row_idx) {
+    row <- dat[row_idx,]
+    prev_row <- dat[row_idx-1,]
+    
+    equities_allocation <- self$equities
+    bonds_allocation <- self$fixed_income
+    
+    # TODO: there's probably something smart to do about putting bonds in the 
+    # taxable account to reduce taxes??  This assumes that each account has 
+    # the target asset allocation.
+    
+    # This code is commong to all asset allocation schemes and should be factored out?
+    row$taxable_account_value <- row$taxable_account_value + 
+      row$taxable_account_value * equities_allocation * row$sp500_growth +
+      row$taxable_account_value * equities_allocation * row$dividend_yield +
+      row$taxable_account_value * bonds_allocation * row$ten_yr_treasury_yield 
+    
+    row$tax_deferred_account_value <- row$tax_deferred_account_value + 
+      row$tax_deferred_account_value * equities_allocation * row$sp500_growth +
+      row$tax_deferred_account_value * equities_allocation * row$dividend_yield + 
+      row$tax_deferred_account_value * bonds_allocation * row$ten_yr_treasury_yield
+    
+    row$total_savings <- row$taxable_account_value + row$tax_deferred_account_value
+    
+    dat[row_idx,] <- row
+    return(dat[row_idx,])
   }
 ))
 
 
 IncomeConstant <- R6Class("IncomeConstant", list(
+  name = NULL,
   amount = NULL,
-  initialize = function(amount) {
+  
+  initialize = function(name, amount) {
+    stopifnot(is.character(name), length(name) == 1)
     stopifnot(is.numeric(amount), length(amount) == 1)
     self$amount <- amount
+    self$name <- paste("income", name, sep="_")
   },
+  
   augment = function(data) {
-    data$income <- NA
+    data[, self$name] = NA_real_
     return(data)
   },
-  income = function(...) {
-    return(self$amount)
+  
+  update = function(dat, row_idx) {
+    dat[row_idx, self$name] <- self$amount
+    # accumulate total income
+    dat[row_idx, "total_income"] <- dat[row_idx, "total_income"] + dat[row_idx, self$name]
+    
+    return(dat[row_idx,])
   }
 ))
-
-
-# IncomeSocialSecurity <- R6Class("IncomeSocialSecurity", list(
-#   start_amount = NULL,
-#   start_age = NULL,
-#   spouse_start_amount = NULL,
-#   spouse_start_age = NULL,
-#   initialize = function(start_amount, start_age, spouse_start_amount, spouse_start_age) {
-#     stopifnot(is.numeric(start_amount), length(start_amount) == 1)
-#     stopifnot(is.numeric(start_age), length(start_age) == 1)
-#     stopifnot(is.numeric(spouse_start_amount), length(spouse_start_amount) == 1)
-#     stopifnot(is.numeric(spouse_start_age), length(spouse_start_age) == 1)
-#     self$start_amount <- start_amount
-#     self$start_age <- start_age
-#     self$spouse_start_amount <- spouse_start_amount
-#     self$spouse_start_age <- spouse_start_age
-#   },
-#   augment = function(data) {
-# #LEFT OFF HERE, need to figure out how to deal with self and spouse 
-# #    need some kind of general income solution for multiple streams,
-# #    social security, employment, windfall, etc. 
-#     data$social_security_income <- NA
-#     return(data)
-#   },
-#   income = function(...) {
-#     return(self$amount)
-#   }
-# ))
+  
+IncomeInflationAdjusted <- R6Class("IncomeInflationAdjusted", list(
+  name = NULL,
+  initial_amt = NULL,  #This is in retirement_year dollars
+  begin_year = NULL,
+  end_year = NULL,
+  initialize = function(name, initial_amt, begin_year, end_year) {
+    stopifnot(is.character(name), length(name) == 1)
+    stopifnot(is.numeric(initial_amt), length(initial_amt) == 1)
+    stopifnot(is.numeric(begin_year), length(begin_year) == 1)
+    stopifnot(is.numeric(end_year), length(end_year) == 1)
+    self$name <- paste("income", name, sep="_")
+    self$initial_amt <- initial_amt
+    self$begin_year <- begin_year
+    self$end_year <- end_year
+  },
+  augment = function(data) {
+    data[,self$name] = NA_real_
+    return(data)
+  },
+  update = function(dat, row_idx) {
+    if(dat[row_idx,"year"] >= self$begin_year && dat[row_idx,"year"] <= self$end_year) {
+      inflation_series <- dat[2:row_idx, "inflation"] 
+      dat[row_idx, self$name] <- self$initial_amt * prod(1+inflation_series)
+    } else {
+      dat[row_idx, self$name] <- 0
+    }
+    # accumulate total income
+    dat[row_idx, "total_income"] <- dat[row_idx, "total_income"] + dat[row_idx, self$name]
+    
+    return(dat[row_idx,])
+  }
+))
 
 
 WithdrawTaxableFirst <- R6Class("WithdrawTaxableFirst", list(
@@ -107,13 +199,29 @@ WithdrawTaxableFirst <- R6Class("WithdrawTaxableFirst", list(
     data$withdrawals <- list(as.numeric(c(taxable=NA, tax_deferred=NA)))
     return(data)
   },
-  withdrawals = function(row, prev_row, amount) {
+  
+  update = function(dat, row_idx) {
+    stopifnot(row_idx >= 2)
+
+    row <- dat[row_idx,]
+    prev_row <- dat[row_idx-1,]
+    
+    amount <- row$total_spending
+
     if (prev_row$taxable_account_value > amount) {
-      return(list(c(taxable=amount, tax_deferred=0)))
+      taxable_withdrawal <- amount
+      tax_deferred_withdrawal <- 0
     } else {
-      return(list(c(taxable=prev_row$taxable_account_value, 
-                    tax_deferred=amount-prev_row$taxable_account_value)))
+      taxable_withdrawal <- prev_row$taxable_account_value
+      tax_deferred_withdrawal <- amount - taxable_withdrawal
     }  
+    
+    row$taxable_account_value <- prev_row$taxable_account_value - taxable_withdrawal
+    # TODO: Take taxes into account.  Also have to deal with required minimum distributions.
+    row$tax_deferred_account_value <- prev_row$tax_deferred_account_value - tax_deferred_withdrawal
+    
+    dat[row_idx,] <- row
+    return(dat[row_idx,])    
   }
 ))
 
@@ -157,5 +265,6 @@ PersonalInfo <- R6Class("PersonalInfo", lock_objects = FALSE, list(
       tax_deferred_account_value = c(self$tax_deferred_acct_value_at_retirement, 
                                      rep(NA, self$years_in_retirement-1)),
       total_savings = taxable_account_value + tax_deferred_account_value)
+    return(data)
   }
 ))
