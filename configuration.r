@@ -4,12 +4,18 @@
 SpendingConstant <- R6Class("SpendingConstant", list(
   name = NULL,
   amount = NULL,
-  
-  initialize = function(name, amount) {
+  begin_year = NULL,
+  end_year = NULL,
+
+  initialize = function(name, amount, begin_year, end_year) {
     stopifnot(is.character(name), length(name) == 1)
     stopifnot(is.numeric(amount), length(amount) == 1)
+    stopifnot(is.numeric(begin_year), length(begin_year) == 1)
+    stopifnot(is.numeric(end_year), length(end_year) == 1)
     self$amount <- amount
     self$name <- paste("spending", name, sep="_")
+    self$begin_year <- begin_year
+    self$end_year <- end_year
   },
   
   augment = function(data) {
@@ -18,7 +24,12 @@ SpendingConstant <- R6Class("SpendingConstant", list(
   },
   
   update = function(dat, row_idx) {
-    dat[row_idx, self$name] <- self$amount
+    if(dat[row_idx,"year"] >= self$begin_year && dat[row_idx,"year"] <= self$end_year) {
+      dat[row_idx, self$name] <- self$amount
+      } else {
+      dat[row_idx, self$name] <- 0
+    }
+    
     # accumulate total spending
     dat[row_idx, "total_spending"] <- dat[row_idx, "total_spending"] + dat[row_idx, self$name]
     
@@ -102,7 +113,6 @@ AssetAllocationConstant <- R6Class("AssetAllocationConstant", list(
     self$fixed_income <- fixed_income
   },
   augment = function(dat) {
-    dat$asset_allocation <- list(as.numeric(c(equities=NA, fixed_income=NA)))
     return(dat)
   },
   update = function(dat, row_idx) {
@@ -196,7 +206,6 @@ IncomeInflationAdjusted <- R6Class("IncomeInflationAdjusted", list(
 
 WithdrawTaxableFirst <- R6Class("WithdrawTaxableFirst", list(
   augment = function(data) {
-    data$withdrawals <- list(as.numeric(c(taxable=NA, tax_deferred=NA)))
     return(data)
   },
   
