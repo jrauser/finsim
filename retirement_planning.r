@@ -1,6 +1,7 @@
 library(tidyverse)
 library(scales)
 library(R6)
+library(furrr)
 source("stat_qtile.r")
 source("simulation.r")
 source("configuration.r")
@@ -24,7 +25,9 @@ shiller_annual<-read_tsv("data/Shiller Data - sp500.tsv") %>%
   filter(year > 1871)
 
 #debug(compute_one_rep)
-reps<-map_dfr(1:500, ~compute_one_rep(shiller_annual, config, .)) %>% 
+
+plan(strategy = multisession, workers = 6)
+reps<-future_map_dfr(1:500, ~compute_one_rep(shiller_annual, config, .), .options=furrr_options(seed = TRUE)) %>% 
   group_by(rep_id) %>%
   mutate(failure = any(total_savings < 0),
          # Zeros mess up plots on a log scale
