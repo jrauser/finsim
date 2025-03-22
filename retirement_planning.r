@@ -46,6 +46,8 @@ for (cname in names(all_configs)) {
 
 
 reps_big<-bind_rows(all_reps)
+save(reps_big, file="reps_big.RData")
+#load(file="reps_big.RData")
 
 reps_big %>%
   group_by(cname, rep_id) %>%
@@ -74,11 +76,26 @@ reps_big %>%
   facet_wrap(~cname)
 
 reps_big %>% 
+  group_by(cname, rep_id) %>%
+  arrange(year) %>%
+  mutate(inflation_effect = cumprod(1/(1+inflation)),
+         total_spending_inflation_adjusted = total_spending * inflation_effect) %>%
+  filter(retirement_year >= 1) %>%
+  ggplot(aes(year, total_spending_inflation_adjusted, group=rep_id)) + 
+  geom_line(aes(color=failure, alpha=failure)) +
+  stat_qtile(aes(group=1)) + 
+  scale_y_log10(labels=comma, limits=c(50000,2000000)) +
+  scale_color_manual(values=c("black","red")) +
+  scale_alpha_manual(values=c(1/20, 1/2)) +
+  facet_wrap(~cname)
+
+
+reps_big %>% 
   filter(retirement_year >= 1) %>%
   ggplot(aes(year, total_spending/total_savings, group=rep_id)) + 
   geom_line(aes(color=failure, alpha=failure)) +
   stat_qtile(aes(group=1)) + 
-  ylim(0,0.25) +
+  ylim(0,0.1) +
   scale_color_manual(values=c("black","red")) +
   scale_alpha_manual(values=c(1/20, 1/2)) +
   facet_wrap(~cname)
@@ -98,11 +115,27 @@ reps_big %>%
   group_by(cname, rep_id) %>%
   arrange(year) %>%
   summarise(end_savings = total_savings[length(total_savings)],
-            inflation_effect = prod(1-inflation),
+            inflation_effect = prod(1/(1+inflation)),
             end_savings_inflation_adjusted = end_savings * inflation_effect) %>%
-  ggplot(aes(end_savings_inflation_adjusted/1e6, color=cname, group=cname)) + 
+  ggplot(aes(end_savings_inflation_adjusted/1e6)) + 
   stat_ecdf() +
-  coord_cartesian(xlim=c(0,100)) 
+  coord_cartesian(xlim=c(0,100)) +
+  facet_wrap(~cname)
+
+
+# inflation vs sp500 growth hairballs
+reps_big %>%
+  group_by(cname, rep_id) %>%
+  arrange(year) %>%
+  mutate(cumul_inflation=cumprod(1+inflation),
+         cumul_sp500_growth=cumprod(1+sp500_growth)) %>%
+  ggplot(aes(cumul_inflation, cumul_sp500_growth, group=rep_id)) + 
+  geom_path(aes(color=failure, alpha=failure)) +
+  scale_x_log10(labels=percent) +
+  scale_y_log10(labels=percent) +
+  scale_color_manual(values=c("black","red")) +
+  scale_alpha_manual(values=c(1/20, 1/2)) +
+  facet_wrap(~cname)
 
 
 
